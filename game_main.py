@@ -4,32 +4,18 @@ import random
 import csv
 from pygame import mixer
 from typing import Union
-from enum import Enum
+from game_variable import GameConstants, SpriteGroups, reset_level
 import button
 
 pygame.init()
 
-# игровые константы
-class GameConstants(Enum):
-    SCREEN_WIDTH: int = 800
-    SCREEN_HEIGHT: int = 600
-    ROWS: int = 16
-    COLS: int = 150
-    SCROLL_THRESH: int = 200
-    TILE_TYPES: int = 21
-    TILE_SIZE: int = SCREEN_HEIGHT // ROWS
-    GRAVITY: float = 0.8
-    BG: tuple[int] = (72, 61, 139)
-    RED: tuple[int] = (255, 0, 0)
-    GREEN: tuple[int] = (0, 255, 0)
-    BLACK: tuple[int] = (0, 0, 0)
-
+# скроллинг
 level: int = 1
 screen_scroll: int = 0
 bg_scroll: int = 0
 
 screen: pygame.surface.Surface = pygame.display.set_mode((GameConstants.SCREEN_WIDTH.value, GameConstants.SCREEN_HEIGHT.value))
-pygame.display.set_caption('shooter')
+pygame.display.set_caption('My Waterloo')
 
 # загрузка звуковых эффектов
 mixer.music.load('audio/embient.wav')
@@ -37,7 +23,7 @@ mixer.music.set_volume(0.1)
 mixer.music.play(-1, 0.0, 5000)
 shoot_audio: pygame.mixer.Sound = mixer.Sound('audio/shot_audio2.wav')
 shoot_audio.set_volume(1)
-grenade_audio: pygame.mixer.Sound = mixer.Sound('audio/grenade.wav')
+grenade_audio: pygame.mixer.Sound = mixer.Sound('audio/grenade_sound.wav')
 grenade_audio.set_volume(0.2)
 jump_audio: pygame.mixer.Sound = mixer.Sound('audio/jump.mp3')
 jump_audio.set_volume(0.05)
@@ -65,7 +51,7 @@ grass: pygame.surface.Surface = pygame.transform.scale(grass, (grass.get_width()
 # игровые плиты
 img_list: list = []
 for i in range(GameConstants.TILE_TYPES.value):
-    img: pygame.surface.Surface = pygame.image.load(f'img/tile/{i}.png')
+    img: pygame.surface.Surface = pygame.image.load(f'IMG/tile/{i}.png')
     img = pygame.transform.scale(img, (GameConstants.TILE_SIZE.value, GameConstants.TILE_SIZE.value))
     img_list.append(img)
 # изображение пули
@@ -100,7 +86,7 @@ def draw_bg() -> None:
         screen.blit(bg, ((x * width), 0))
         screen.blit(mountain_far, ((x * width) - bg_scroll * 0.6, GameConstants.SCREEN_HEIGHT.value - mountain_far.get_height() - 200))
         screen.blit(mountains, ((x * width) - bg_scroll * 0.6, GameConstants.SCREEN_HEIGHT.value - mountains.get_height() - 200))
-        screen.blit(grass, ((x * width) - bg_scroll * 0.8, GameConstants.SCREEN_HEIGHT.value - grass.get_height() - -200))
+        screen.blit(grass, ((x * width) - bg_scroll * 0.8, GameConstants.SCREEN_HEIGHT.value - grass.get_height() + 200))
 
 clock: pygame.time.Clock = pygame.time.Clock()
 FPS: int = 60
@@ -204,6 +190,11 @@ class Fighter(pygame.sprite.Sprite):
                     dy = tile[1].top - self.rect.bottom
                     self.in_air = False
 
+        # коллизия с переходом на новый уровень
+        complete_level = False
+        if pygame.sprite.spritecollide(self, SpriteGroups.exit_group, False):
+            complete_level = True
+
         # в перспективе для разных уровней, учитываем границы самого экрана, чтобы игрок за них не вышел
         if self.player_or_enemy == 'player':
             if self.rect.left + dx < 0 or self.rect.right + dx > GameConstants.SCREEN_WIDTH.value:
@@ -214,7 +205,7 @@ class Fighter(pygame.sprite.Sprite):
             self.health = 0
 
         # если игрок упал в воду
-        if pygame.sprite.spritecollide(self, water_group, False):
+        if pygame.sprite.spritecollide(self, SpriteGroups.water_group, False):
             self.health = 0
 
         self.rect.x += dx
@@ -227,10 +218,10 @@ class Fighter(pygame.sprite.Sprite):
                     or (self.rect.left < GameConstants.SCROLL_THRESH.value and bg_scroll > abs(dx)):
                 self.rect.x -= dx
                 screen_scroll = -dx
-        return screen_scroll
+        return screen_scroll, complete_level
 
     def attack(self) -> None:
-        for enemy in enemy_group:
+        for enemy in SpriteGroups.enemy_group:
             if pygame.sprite.collide_rect(self, enemy):
                 enemy.health = 0
 
@@ -240,7 +231,7 @@ class Fighter(pygame.sprite.Sprite):
         if self.shoot_cooldown == 0 and self.ammo > 0:
             self.shoot_cooldown = 20
             bullet = Bullet(self.rect.centerx + (0.7 * self.rect.size[0] * self.direction), self.rect.centery - 19, self.direction)
-            bullets_group.add(bullet)
+            SpriteGroups.bullets_group.add(bullet)
             # уменьшение количества патронов после выстрела
             self.ammo -= 1
             shoot_audio.play()
@@ -362,28 +353,28 @@ class World:
                         self.obstacle_list.append(tile_data)
                     elif 9 <= tile <= 10: # блоки воды
                         water: Water = Water(img, x * GameConstants.TILE_SIZE.value, y * GameConstants.TILE_SIZE.value)
-                        water_group.add(water)
+                        SpriteGroups.water_group.add(water)
                     elif 11 <= tile <= 14: # декорации
                         decoration: Decoration = Decoration(img, x * GameConstants.TILE_SIZE.value, y * GameConstants.TILE_SIZE.value)
-                        decoration_group.add(decoration)
+                        SpriteGroups.decoration_group.add(decoration)
                     elif tile == 15: # создание игрока
                         player: Fighter = Fighter('player', x * GameConstants.TILE_SIZE.value, y * GameConstants.TILE_SIZE.value, 1, 5, 20, 5)
                         health_bar: HealthBar = HealthBar(20, 20, 100, 100)
                     elif tile == 16: # создание врага
                         enemy: Fighter = Fighter('enemy', x * GameConstants.TILE_SIZE.value, y * GameConstants.TILE_SIZE.value, 1, 2, 20, 0)
-                        enemy_group.add(enemy)
+                        SpriteGroups.enemy_group.add(enemy)
                     elif tile == 17: # создание ящика с патронами
                         ammo_box: ItemBox = ItemBox('Ammo', x * GameConstants.TILE_SIZE.value, y * GameConstants.TILE_SIZE.value)
-                        item_box_group.add(ammo_box)
+                        SpriteGroups.item_box_group.add(ammo_box)
                     elif tile == 18: # создание ящика с гранатами
                         grenade_box: ItemBox = ItemBox('Grenade', x * GameConstants.TILE_SIZE.value, y * GameConstants.TILE_SIZE.value)
-                        item_box_group.add(grenade_box)
+                        SpriteGroups.item_box_group.add(grenade_box)
                     elif tile == 19: # создание ящика с аптечкой
                         health_box: ItemBox = ItemBox('Health', x * GameConstants.TILE_SIZE.value,  y * GameConstants.TILE_SIZE.value)
-                        item_box_group.add(health_box)
+                        SpriteGroups.item_box_group.add(health_box)
                     elif tile == 20: # выход
                         exit: Exit = Exit(img, x * GameConstants.TILE_SIZE.value, y * GameConstants.TILE_SIZE.value)
-                        exit_group.add(exit)
+                        SpriteGroups.exit_group.add(exit)
 
         return player, health_bar
 
@@ -416,13 +407,13 @@ class Bullet(pygame.sprite.Sprite):
                 self.kill()
 
         # проверка коллизии пули с игроком/противником
-        if pygame.sprite.spritecollide(player, bullets_group, False):
+        if pygame.sprite.spritecollide(player, SpriteGroups.bullets_group, False):
             if player.alive:
                 player.health -= 5
                 self.kill()
 
-        for enemy in enemy_group:
-            if pygame.sprite.spritecollide(enemy, bullets_group, False):
+        for enemy in SpriteGroups.enemy_group:
+            if pygame.sprite.spritecollide(enemy, SpriteGroups.bullets_group, False):
                 if enemy.alive:
                     enemy.health -= 25
                     self.kill()
@@ -470,14 +461,14 @@ class Grenade(pygame.sprite.Sprite):
             self.kill()
             grenade_audio.play()
             exp = Explosion(self.rect.x, self.rect.y, 1)
-            explosion_group.add(exp)
+            SpriteGroups.explosion_group.add(exp)
 
             # нанесение урона кому-либо
             if abs(self.rect.centerx - player.rect.centerx) < GameConstants.TILE_SIZE.value * 2 and \
                     abs(self.rect.centery - player.rect.centery) < GameConstants.TILE_SIZE.value * 2:
                 player.health -= 50
 
-            for enemy in enemy_group:
+            for enemy in SpriteGroups.enemy_group:
                 if abs(self.rect.centerx - enemy.rect.centerx) < GameConstants.TILE_SIZE.value * 2 and \
                         abs(self.rect.centery - enemy.rect.centery) < GameConstants.TILE_SIZE.value * 2:
                     enemy.health -= 100
@@ -542,6 +533,9 @@ class Exit(pygame.sprite.Sprite):
         self.rect: pygame.Rect = self.image.get_rect()
         self.rect.midtop: tuple[int] = (x + GameConstants.TILE_SIZE.value // 2, y + (GameConstants.TILE_SIZE.value - self.image.get_height()))
 
+    def update(self):
+        self.rect.x += screen_scroll
+
 # создание класса ящиков
 class ItemBox(pygame.sprite.Sprite):
     def __init__(self, item_box_type: str, x: int, y: int):
@@ -584,24 +578,10 @@ class ItemBox(pygame.sprite.Sprite):
                     player.grenades += 1
                     self.kill()
 
-# создание групп спрайтов
-bullets_group: pygame.sprite.Group = pygame.sprite.Group()
-grenade_group: pygame.sprite.Group = pygame.sprite.Group()
-explosion_group: pygame.sprite.Group = pygame.sprite.Group()
-enemy_group: pygame.sprite.Group = pygame.sprite.Group()
-item_box_group: pygame.sprite.Group = pygame.sprite.Group()
-decoration_group: pygame.sprite.Group = pygame.sprite.Group()
-water_group: pygame.sprite.Group = pygame.sprite.Group()
-exit_group: pygame.sprite.Group = pygame.sprite.Group()
-
-
 run: bool = True
 
 # создаём базу данных игрового мира и заполняем её пустыми клетками (-1 = пустое пространство)
-world_data: list[list[int]] = []
-for row in range(GameConstants.ROWS.value):
-    r: list[int] = [-1] * GameConstants.COLS.value
-    world_data.append(r)
+world_data = reset_level()
 # загрузка мира и создание уровня
 with open(f'level{level}_data.csv', newline='') as csv_file:
     reader = csv.reader(csv_file, delimiter=',')
@@ -614,6 +594,7 @@ player, health_bar = world.process_data(world_data)
 # создание кнопок
 start_button: button.Button = button.Button(GameConstants.SCREEN_WIDTH.value // 2 - 150, GameConstants.SCREEN_HEIGHT.value // 2 - 170, start_button_img, 1.2)
 exit_button: button.Button = button.Button(GameConstants.SCREEN_WIDTH.value // 2 - 150, GameConstants.SCREEN_HEIGHT.value // 2  + 50, exit_button_img, 1.2)
+restart_button: button.Button = button.Button(GameConstants.SCREEN_WIDTH.value // 2 - 150, GameConstants.SCREEN_HEIGHT.value // 2 - 65, restart_game_img, 1.2)
 
 # основной игровой цикл
 while run:
@@ -636,7 +617,7 @@ while run:
         # прорисовка мира
         world.draw()
 
-        for enemy in enemy_group:
+        for enemy in SpriteGroups.enemy_group:
             enemy.draw()
             enemy.ai_control()
             enemy.update()
@@ -645,20 +626,20 @@ while run:
         player.update()
 
         # обновление и отросовка всех групп спрайтов
-        bullets_group.update()
-        bullets_group.draw(screen)
-        grenade_group.update()
-        grenade_group.draw(screen)
-        explosion_group.update()
-        explosion_group.draw(screen)
-        item_box_group.update()
-        item_box_group.draw(screen)
-        decoration_group.update()
-        decoration_group.draw(screen)
-        water_group.update()
-        water_group.draw(screen)
-        exit_group.update()
-        exit_group.draw(screen)
+        SpriteGroups.bullets_group.update()
+        SpriteGroups.bullets_group.draw(screen)
+        SpriteGroups.grenade_group.update()
+        SpriteGroups.grenade_group.draw(screen)
+        SpriteGroups.explosion_group.update()
+        SpriteGroups.explosion_group.draw(screen)
+        SpriteGroups.item_box_group.update()
+        SpriteGroups.item_box_group.draw(screen)
+        SpriteGroups.decoration_group.update()
+        SpriteGroups.decoration_group.draw(screen)
+        SpriteGroups.water_group.update()
+        SpriteGroups.water_group.draw(screen)
+        SpriteGroups.exit_group.update()
+        SpriteGroups.exit_group.draw(screen)
 
         # обновление табличек с информации о состоянии игрока
         health_bar.draw(player.health)
@@ -675,7 +656,7 @@ while run:
                 player.update_action(4) # grenade: 4
                 if grenade_throw == False and player.grenades > 0:
                     gnd = Grenade(player.rect.centerx + (0.65 * player.rect.size[0] * player.direction), player.rect.top, player.direction)
-                    grenade_group.add(gnd)
+                    SpriteGroups.grenade_group.add(gnd)
                     player.grenades -= 1
                     grenade_throw = True
             elif attack:
@@ -683,8 +664,36 @@ while run:
                 player.attack()
             else:
                 player.update_action(0) # idle: 0
-            screen_scroll = player.move(moving_left, moving_right)
+            screen_scroll, complete_level = player.move(moving_left, moving_right)
             bg_scroll -= screen_scroll
+
+            if complete_level and level <= GameConstants.MAX_LEVEL.value:
+                level += 1
+                bg_scroll = 0
+                world_data = reset_level()
+
+                with open(f'level{level}_data.csv', newline='') as csv_file:
+                    reader = csv.reader(csv_file, delimiter=',')
+                    for x, row in enumerate(reader):
+                        for y, tile in enumerate(row):
+                            world_data[x][y] = int(tile)
+                world: World = World()
+                player, health_bar = world.process_data(world_data)
+
+        else:
+            screen.fill(GameConstants.RED.value)
+            screen_scroll = 0
+            if restart_button.draw(screen):
+                bg_scroll = 0
+                world_data = reset_level()
+
+                with open(f'level{level}_data.csv', newline='') as csv_file:
+                    reader = csv.reader(csv_file, delimiter=',')
+                    for x, row in enumerate(reader):
+                        for y, tile in enumerate(row):
+                            world_data[x][y] = int(tile)
+                world: World = World()
+                player, health_bar = world.process_data(world_data)
 
         for event in pygame.event.get():
 
